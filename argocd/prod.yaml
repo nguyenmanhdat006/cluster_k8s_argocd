@@ -1,0 +1,21 @@
+# Application cho môi trường prod. Apply tay 1 lần (hoặc apply cả thư mục argocd/).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ecommerce-prod
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: REPLACE_GIT_REPO_URL
+    targetRevision: main
+    path: app/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ecommerce
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

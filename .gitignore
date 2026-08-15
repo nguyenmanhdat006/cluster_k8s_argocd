@@ -1,0 +1,10 @@
+# Không commit secret thô. Chỉ commit SealedSecret đã mã hóa.
+*secret.yaml
+!*sealed-secret.yaml
+!*-sealed-secret.yaml
+backend-secret.yaml
+tls.key
+tls.crt
+*.pem
+*.key
+.env

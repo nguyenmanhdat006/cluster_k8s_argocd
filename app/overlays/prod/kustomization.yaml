@@ -4,9 +4,10 @@ namespace: ecommerce
 resources:
   - ../../base
   - namespace.yaml
+  - hpa.yaml
   - backend-sealed-secret.yaml
 patches:
-  - path: replicas-patch.yaml
+  - path: resources-patch.yaml
   - target: { kind: Ingress, name: ecommerce-ingress }
     patch: |-
       - op: replace

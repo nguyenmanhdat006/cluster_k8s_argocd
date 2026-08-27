@@ -28,14 +28,15 @@ gitops-demo/
         ├── dev/
         │   ├── kustomization.yaml
         │   ├── namespace.yaml
-        │   ├── replicas-patch.yaml
+        │   ├── hpa.yaml
         │   └── backend-sealed-secret.example.yaml
         ├── staging/
         │   └── ... (tương tự)
         └── prod/
             ├── kustomization.yaml
             ├── namespace.yaml
-            ├── replicas-patch.yaml
+            ├── hpa.yaml
+            ├── resources-patch.yaml
             └── backend-sealed-secret.yaml     # secret thật (đã seal)
 ```
 
@@ -60,10 +61,16 @@ báo **phần khác biệt** của môi trường đó, rồi Kustomize ghép l�
 | Thuộc tính        | dev                     | staging                     | prod                    |
 |-------------------|-------------------------|-----------------------------|-------------------------|
 | Namespace         | `ecommerce-dev`         | `ecommerce-staging`         | `ecommerce`             |
-| Replicas          | 1                       | 2                           | 3                       |
+| HPA backend       | min 1 / max 3, CPU 80%  | min 2 / max 5, CPU 75%      | min 3 / max 10, CPU 70% |
+| HPA frontend      | min 1 / max 2, CPU 80%  | min 2 / max 4, CPU 75%      | min 3 / max 8, CPU 70%  |
 | Host              | `dev.k8s.nguyendat.tech`| `staging.k8s.nguyendat.tech`| `k8s.nguyendat.tech`    |
 | Tài nguyên backend| mặc định (base)         | mặc định (base)             | cấp cao hơn             |
 | Sealed Secret     | cần seal cho namespace  | cần seal cho namespace      | có sẵn (seal cho `ecommerce`) |
+
+Số replica **không** còn khai báo tĩnh trong Git — mỗi Deployment được
+`HorizontalPodAutoscaler` (HPA) quản lý dựa trên % CPU sử dụng (`requests.cpu` làm mốc).
+Argo CD được cấu hình `ignoreDifferences` trên `/spec/replicas` để không giằng co với HPA
+(xem phần "Trải nghiệm vòng lặp GitOps" bên dưới).
 
 Quy ước namespace: môi trường prod dùng namespace gốc `ecommerce`; các môi trường phi-prod
 dùng hậu tố `-<env>`. Đây là một quy ước phổ biến giúp phân tách rõ ràng.
@@ -139,26 +146,32 @@ kubectl apply -f argocd/
 
 Đây là điểm cốt lõi cần nắm. Thử thay đổi cấu hình môi trường dev:
 
-1. Mở `app/overlays/dev/replicas-patch.yaml`, đổi `replicas: 1` thành `replicas: 3`.
+1. Mở `app/overlays/dev/hpa.yaml`, đổi `maxReplicas: 3` thành `maxReplicas: 5` cho `backend`.
 2. Commit và push:
    ```bash
-   git add app/overlays/dev/replicas-patch.yaml
-   git commit -m "scale dev backend to 3"
+   git add app/overlays/dev/hpa.yaml
+   git commit -m "raise dev backend max replicas to 5"
    git push
    ```
 3. Không chạy lệnh `kubectl apply`. Chỉ quan sát:
    ```bash
-   kubectl get pods -n ecommerce-dev -w
+   kubectl get hpa -n ecommerce-dev -w
    ```
 
 Argo CD phát hiện thay đổi trong Git và tự động cập nhật cluster. Quan trọng: thay đổi chỉ
 tác động môi trường dev, prod và staging không bị ảnh hưởng — đó là giá trị của việc tách
 overlays.
 
-Kiểm chứng cơ chế tự phục hồi (self-heal):
+**Vì sao Argo CD không giằng co với HPA:** HPA liên tục ghi `spec.replicas` của Deployment
+theo tải CPU thực tế, còn Git không khai báo giá trị này (`replicas` đã bị bỏ khỏi
+`app/base/`). Mỗi `argocd/<env>.yaml` có thêm `ignoreDifferences` trên `/spec/replicas`, nên
+Argo CD bỏ qua khác biệt ở field đó thay vì tự phục hồi (self-heal) về Git — nếu không có
+khối này, Argo sẽ liên tục kéo replicas về giá trị cũ và triệt tiêu tác dụng của HPA.
+
+Kiểm chứng HPA đang hoạt động (cần **metrics-server** trong cluster):
 ```bash
-kubectl scale deployment backend -n ecommerce-dev --replicas=1   # sửa tay
-kubectl get pods -n ecommerce-dev -w                             # Argo CD kéo về đúng Git
+kubectl top pods -n ecommerce-dev                # xác nhận metrics-server có dữ liệu
+kubectl get hpa -n ecommerce-dev -w               # theo dõi HPA scale theo %CPU
 ```
 
 ---
@@ -180,7 +193,8 @@ tạo `argocd/uat.yaml`, apply.
 | `argocd/<env>.yaml` | Argo CD Application: theo dõi một overlay, đồng bộ vào một namespace |
 | `app/base/` | Manifest gốc, dùng chung cho mọi môi trường |
 | `app/overlays/<env>/kustomization.yaml` | Ghép base + khai báo khác biệt của môi trường |
-| `app/overlays/<env>/replicas-patch.yaml` | Patch số replica (và tài nguyên với prod) |
+| `app/overlays/<env>/hpa.yaml` | HorizontalPodAutoscaler cho backend + frontend, ngưỡng theo môi trường |
+| `app/overlays/prod/resources-patch.yaml` | Patch tài nguyên (requests/limits) riêng cho prod |
 | `app/overlays/<env>/namespace.yaml` | Namespace riêng của môi trường |
 | `app/overlays/<env>/backend-sealed-secret.yaml` | Secret đã seal cho namespace tương ứng |
 

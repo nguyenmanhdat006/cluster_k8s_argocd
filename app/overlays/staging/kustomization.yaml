@@ -4,9 +4,9 @@ namespace: ecommerce-staging
 resources:
   - ../../base
   - namespace.yaml
-  # - backend-sealed-secret.yaml     # bỏ comment SAU khi seal cho ecommerce-staging
+  - hpa.yaml
+  # - backend-sealed-secret.yaml
 patches:
-  - path: replicas-patch.yaml
   - target: { kind: Ingress, name: ecommerce-ingress }
     patch: |-
       - op: replace

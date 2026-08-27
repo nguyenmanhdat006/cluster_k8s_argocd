@@ -3,7 +3,6 @@ kind: Deployment
 metadata:
   name: backend
 spec:
-  replicas: 3
   template:
     spec:
       containers:
@@ -11,10 +10,3 @@ spec:
           resources:
             requests: { cpu: "250m", memory: "256Mi" }
             limits:   { cpu: "1",    memory: "1Gi" }
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: frontend
-spec:
-  replicas: 3

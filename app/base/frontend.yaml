@@ -16,6 +16,9 @@ spec:
           image: nguyendat0810/ecommerce-frontend:v1
           ports:
             - containerPort: 80
+          resources:          
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits:   { cpu: "250m", memory: "128Mi" }
 ---
 apiVersion: v1
 kind: Service

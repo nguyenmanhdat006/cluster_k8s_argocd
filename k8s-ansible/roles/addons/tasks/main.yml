@@ -19,9 +19,9 @@
 
 # kubeadm dùng chứng chỉ kubelet tự ký -> metrics-server cần cờ này mới đọc được CPU/RAM.
 - name: Vá metrics-server cho môi trường kubeadm
-  ansible.builtin.command: >
+  ansible.builtin.shell: >
     kubectl -n kube-system patch deployment metrics-server --type=json
-    -p=[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]
+    -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
   when: "'kubelet-insecure-tls' not in ms_args.stdout"

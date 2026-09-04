@@ -1,0 +1,27 @@
+---
+# Playbook chính. Chạy:  ansible-playbook site.yml
+# Thứ tự: chuẩn bị tất cả node -> init master -> join worker -> cài add-on + Argo CD.
+
+- name: (1) Chuẩn bị tất cả node
+  hosts: k8s_cluster
+  become: true
+  roles:
+    - common
+
+- name: (2) Khởi tạo control-plane (master)
+  hosts: master
+  become: true
+  roles:
+    - master
+
+- name: (3) Join các worker vào cluster
+  hosts: workers
+  become: true
+  roles:
+    - worker
+
+- name: (4) Cài add-on + Argo CD (trên master)
+  hosts: master
+  become: true
+  roles:
+    - addons

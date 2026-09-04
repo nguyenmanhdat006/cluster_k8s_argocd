@@ -1,0 +1,138 @@
+---
+# Chạy trên cả master + worker: chuẩn bị OS, cài containerd + gói Kubernetes.
+
+- name: Đặt hostname theo inventory
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Ghi /etc/hosts để 3 node phân giải tên nhau
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} K8S CLUSTER HOSTS"
+    block: |
+      {% for host in groups['k8s_cluster'] %}
+      {{ hostvars[host]['ansible_host'] }} {{ host }}
+      {% endfor %}
+
+# --- Tắt swap (kubelet không chạy nếu còn swap) ---
+- name: Tắt swap ngay
+  ansible.builtin.command: swapoff -a
+  changed_when: false
+
+- name: Tắt swap vĩnh viễn trong /etc/fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s.*)$'
+    replace: '# \1'
+
+# --- Kernel modules + sysctl cho mạng container ---
+- name: Nạp kernel module ngay
+  ansible.builtin.command: "modprobe {{ item }}"
+  loop:
+    - overlay
+    - br_netfilter
+  changed_when: false
+
+- name: Nạp module tự động khi khởi động
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      overlay
+      br_netfilter
+    mode: "0644"
+
+- name: Cấu hình sysctl cho Kubernetes
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/k8s.conf
+    content: |
+      net.bridge.bridge-nf-call-iptables  = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward                 = 1
+    mode: "0644"
+
+- name: Áp dụng sysctl
+  ansible.builtin.command: sysctl --system
+  changed_when: false
+
+# --- Containerd (container runtime) ---
+- name: Cài containerd
+  ansible.builtin.apt:
+    name: containerd
+    state: present
+    update_cache: true
+
+- name: Tạo thư mục cấu hình containerd
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    mode: "0755"
+
+- name: Sinh cấu hình mặc định cho containerd
+  ansible.builtin.shell: containerd config default > /etc/containerd/config.toml
+  args:
+    creates: /etc/containerd/config.toml
+
+- name: Bật SystemdCgroup (bắt buộc để kubelet chạy ổn)
+  ansible.builtin.replace:
+    path: /etc/containerd/config.toml
+    regexp: 'SystemdCgroup = false'
+    replace: 'SystemdCgroup = true'
+  notify: restart containerd
+
+- name: Bật + khởi động containerd
+  ansible.builtin.systemd:
+    name: containerd
+    enabled: true
+    state: started
+
+# --- Gói Kubernetes: kubelet, kubeadm, kubectl ---
+- name: Cài gói phụ trợ
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gpg
+    state: present
+    update_cache: true
+
+- name: Tạo thư mục keyrings
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Tải khóa GPG của kho Kubernetes
+  ansible.builtin.get_url:
+    url: "https://pkgs.k8s.io/core:/stable:/{{ k8s_minor }}/deb/Release.key"
+    dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+    mode: "0644"
+
+- name: Thêm kho apt Kubernetes
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/{{ k8s_minor }}/deb/ /"
+    filename: kubernetes
+    state: present
+
+- name: Cài kubelet, kubeadm, kubectl
+  ansible.builtin.apt:
+    name:
+      - kubelet
+      - kubeadm
+      - kubectl
+    state: present
+    update_cache: true
+
+- name: Ghim phiên bản (tránh tự nâng cấp làm vỡ cluster)
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+- name: Bật kubelet
+  ansible.builtin.systemd:
+    name: kubelet
+    enabled: true

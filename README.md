@@ -17,27 +17,33 @@ gitops-demo/
 │   ├── staging.yaml             #   → theo dõi app/overlays/staging
 │   └── prod.yaml                #   → theo dõi app/overlays/prod
 │
-└── app/
-    ├── base/                    # Manifest DÙNG CHUNG, trung lập môi trường
-    │   ├── backend.yaml         #   Deployment + Service backend
-    │   ├── frontend.yaml        #   Deployment + Service frontend
-    │   ├── ingress.yaml         #   Định tuyến (host để placeholder)
-    │   └── kustomization.yaml
-    │
-    └── overlays/                # KHÁC BIỆT theo từng môi trường
-        ├── dev/
-        │   ├── kustomization.yaml
-        │   ├── namespace.yaml
-        │   ├── hpa.yaml
-        │   └── backend-sealed-secret.example.yaml
-        ├── staging/
-        │   └── ... (tương tự)
-        └── prod/
-            ├── kustomization.yaml
-            ├── namespace.yaml
-            ├── hpa.yaml
-            ├── resources-patch.yaml
-            └── backend-sealed-secret.yaml     # secret thật (đã seal)
+├── app/
+│   ├── base/                    # Manifest DÙNG CHUNG, trung lập môi trường
+│   │   ├── backend.yaml         #   Deployment + Service backend
+│   │   ├── frontend.yaml        #   Deployment + Service frontend
+│   │   ├── ingress.yaml         #   Định tuyến (host để placeholder)
+│   │   └── kustomization.yaml
+│   │
+│   └── overlays/                # KHÁC BIỆT theo từng môi trường
+│       ├── dev/
+│       │   ├── kustomization.yaml
+│       │   ├── namespace.yaml
+│       │   ├── hpa.yaml
+│       │   └── backend-sealed-secret.example.yaml
+│       ├── staging/
+│       │   └── ... (tương tự)
+│       └── prod/
+│           ├── kustomization.yaml
+│           ├── namespace.yaml
+│           ├── hpa.yaml
+│           ├── resources-patch.yaml
+│           └── backend-sealed-secret.yaml     # secret thật (đã seal)
+│
+└── k8s-ansible/                 # Dựng cụm Kubernetes từ đầu bằng Ansible (tuỳ chọn)
+    ├── site.yml                 #   Playbook chính: chuẩn bị node → init master → join worker → add-on
+    ├── inventory.ini            #   Danh sách 3 máy (1 master + 2 worker) + user SSH
+    ├── group_vars/all.yml       #   Phiên bản K8s, dải IP pod, URL add-on
+    └── roles/                   #   common / master / worker / addons
 ```
 
 ## Nguyên lý base/overlays
@@ -74,6 +80,33 @@ Argo CD được cấu hình `ignoreDifferences` trên `/spec/replicas` để kh
 
 Quy ước namespace: môi trường prod dùng namespace gốc `ecommerce`; các môi trường phi-prod
 dùng hậu tố `-<env>`. Đây là một quy ước phổ biến giúp phân tách rõ ràng.
+
+---
+
+## Chưa có cluster? Dựng bằng Ansible
+
+Thư mục [`k8s-ansible/`](k8s-ansible/) chứa playbook Ansible dựng **từ đầu** một cụm
+Kubernetes 3 node (1 master + 2 worker) trên VMware, kèm sẵn mọi thứ repo GitOps này cần:
+Argo CD, metrics-server, ingress-nginx, sealed-secrets. Nếu đã có cluster sẵn đáp ứng phần
+"Yêu cầu hệ thống" bên dưới thì bỏ qua bước này.
+
+Tóm tắt cách chạy (chi tiết xem [`k8s-ansible/README.md`](k8s-ansible/README.md)):
+
+```bash
+cd k8s-ansible
+
+# 1. Sửa inventory.ini: user SSH + đường dẫn private key (IP 3 máy đã điền sẵn)
+# 2. Kiểm tra Ansible vào được cả 3 máy
+ansible all -m ping
+
+# 3. Chạy triển khai (mất khoảng 10–20 phút)
+ansible-playbook site.yml -K
+```
+
+Kết thúc, Ansible in ra **mật khẩu admin Argo CD** — dùng nó để đăng nhập, sau đó quay lại
+các bước bên dưới để apply Argo CD Application của repo này. Lưu ý: cluster mới sinh khóa
+sealed-secrets mới, nên `backend-sealed-secret.yaml` hiện có trong `app/overlays/` **phải
+được seal lại** cho cluster mới trước khi dùng (xem "Lưu ý bảo mật" cuối file).
 
 ---
 

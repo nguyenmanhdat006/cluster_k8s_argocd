@@ -1,0 +1,85 @@
+---
+# Chạy trên master. Dùng kubectl với kubeconfig của cluster để cài các add-on.
+# Mọi lệnh kubectl apply đều idempotent (chạy lại không hỏng).
+
+- name: Cài metrics-server (cần cho HPA)
+  ansible.builtin.command: "kubectl apply -f {{ metrics_server_url }}"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  changed_when: false
+
+- name: Kiểm tra metrics-server đã có cờ kubelet-insecure-tls chưa
+  ansible.builtin.shell: >
+    kubectl -n kube-system get deployment metrics-server
+    -o jsonpath='{.spec.template.spec.containers[0].args}'
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: ms_args
+  changed_when: false
+
+# kubeadm dùng chứng chỉ kubelet tự ký -> metrics-server cần cờ này mới đọc được CPU/RAM.
+- name: Vá metrics-server cho môi trường kubeadm
+  ansible.builtin.command: >
+    kubectl -n kube-system patch deployment metrics-server --type=json
+    -p=[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  when: "'kubelet-insecure-tls' not in ms_args.stdout"
+
+- name: Cài ingress-nginx (bản bare-metal, dùng NodePort)
+  ansible.builtin.command: "kubectl apply -f {{ ingress_nginx_url }}"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  changed_when: false
+
+- name: Cài sealed-secrets controller
+  ansible.builtin.command: "kubectl apply -f {{ sealed_secrets_url }}"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  changed_when: false
+
+- name: Tạo namespace argocd
+  ansible.builtin.command: kubectl create namespace argocd
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: argocd_ns
+  changed_when: "'created' in argocd_ns.stdout"
+  failed_when: argocd_ns.rc != 0 and 'AlreadyExists' not in argocd_ns.stderr
+
+- name: Cài Argo CD
+  ansible.builtin.command: "kubectl apply -n argocd -f {{ argocd_install_url }}"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  changed_when: false
+
+- name: Chờ Argo CD server sẵn sàng
+  ansible.builtin.command: >
+    kubectl -n argocd wait --for=condition=available deployment/argocd-server --timeout=300s
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  changed_when: false
+
+# (Tuỳ chọn) Tự áp Application GitOps nếu bạn khai báo URL manifest
+- name: (Tuỳ chọn) Áp manifest GitOps bootstrap của bạn
+  ansible.builtin.command: "kubectl apply -f {{ gitops_bootstrap_manifest }}"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  when: gitops_bootstrap_manifest | length > 0
+  changed_when: false
+
+- name: Lấy mật khẩu admin ban đầu của Argo CD
+  ansible.builtin.shell: >
+    kubectl -n argocd get secret argocd-initial-admin-secret
+    -o jsonpath='{.data.password}' | base64 -d
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: argocd_pw
+  changed_when: false
+
+- name: Hiển thị thông tin đăng nhập Argo CD
+  ansible.builtin.debug:
+    msg:
+      - "Argo CD đã cài xong."
+      - "User: admin"
+      - "Password: {{ argocd_pw.stdout }}"
+      - "Mở UI:  kubectl -n argocd port-forward svc/argocd-server 8080:443"

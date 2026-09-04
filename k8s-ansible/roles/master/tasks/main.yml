@@ -1,0 +1,47 @@
+---
+
+- name: Kiểm tra cluster đã khởi tạo chưa (idempotent)
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: kubeadm_admin
+
+- name: kubeadm init (chỉ chạy nếu chưa init)
+  ansible.builtin.command: >
+    kubeadm init
+    --pod-network-cidr={{ pod_network_cidr }}
+    --apiserver-advertise-address={{ ansible_host }}
+  when: not kubeadm_admin.stat.exists
+  register: kubeadm_init_result
+
+- name: Tạo thư mục .kube cho user
+  ansible.builtin.file:
+    path: "/home/{{ ansible_user }}/.kube"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+
+- name: Copy kubeconfig cho user (để chạy kubectl không cần sudo)
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "/home/{{ ansible_user }}/.kube/config"
+    remote_src: true
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0600"
+
+- name: Cài Flannel (mạng cho pod)
+  ansible.builtin.command: "kubectl apply -f {{ flannel_url }}"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: flannel_apply
+  changed_when: "'created' in flannel_apply.stdout or 'configured' in flannel_apply.stdout"
+
+- name: Sinh lệnh join cho worker
+  ansible.builtin.command: kubeadm token create --print-join-command
+  register: join_command_raw
+  changed_when: false
+
+- name: Lưu lệnh join thành biến để worker dùng
+  ansible.builtin.set_fact:
+    join_command: "{{ join_command_raw.stdout }}"

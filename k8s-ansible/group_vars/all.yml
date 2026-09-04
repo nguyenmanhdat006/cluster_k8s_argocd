@@ -1,0 +1,17 @@
+# Phiên bản Kubernetes (dòng minor). Đổi nếu muốn bản khác.
+k8s_minor: "v1.30"
+
+# Dải IP cho pod. CỐ TÌNH chọn 10.244.0.0/16 để KHÔNG trùng dải node
+# 192.168.253.0/24 của bạn (nếu trùng, mạng cluster sẽ hỏng). Khớp với Flannel.
+pod_network_cidr: "10.244.0.0/16"
+
+# --- Phiên bản các add-on ---
+flannel_url: "https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml"
+metrics_server_url: "https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml"
+ingress_nginx_url: "https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.11.3/deploy/static/provider/baremetal/deploy.yaml"
+sealed_secrets_url: "https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.27.1/controller.yaml"
+argocd_install_url: "https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml"
+
+# (Tuỳ chọn) URL repo GitOps của bạn. Để trống thì playbook chỉ dựng cluster + ArgoCD,
+# không tự deploy app. Điền vào nếu muốn tự áp Application luôn.
+gitops_bootstrap_manifest: ""

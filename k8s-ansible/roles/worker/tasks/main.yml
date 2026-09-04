@@ -1,0 +1,10 @@
+---
+
+- name: Kiểm tra worker đã join chưa (idempotent)
+  ansible.builtin.stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf
+
+- name: Join cluster (chỉ chạy nếu chưa join)
+  ansible.builtin.command: "{{ hostvars[groups['master'][0]]['join_command'] }}"
+  when: not kubelet_conf.stat.exists

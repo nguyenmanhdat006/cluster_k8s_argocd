@@ -47,7 +47,7 @@
   failed_when: argocd_ns.rc != 0 and 'AlreadyExists' not in argocd_ns.stderr
 
 - name: Cài Argo CD
-  ansible.builtin.command: "kubectl apply -n argocd --server-side -f {{ argocd_install_url }}"
+  ansible.builtin.command: "kubectl apply -n argocd --server-side --force-conflicts -f {{ argocd_install_url }}"
   environment:
     KUBECONFIG: /etc/kubernetes/admin.conf
   changed_when: false
